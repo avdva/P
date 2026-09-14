@@ -186,7 +186,7 @@ All configuration lives in **`~/.peasyai/settings.json`**.
 
 ### Google Gemini
 
-Set `"provider": "gemini"` and fill in `api_key`. Alternatively, you can use `"provider": "google_gemini"`. You can also configure standard environments with either the `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variables.
+Set `"provider": "gemini"` and fill in `api_key`. Alternatively, you can use `"provider": "google_gemini"`. You can also configure standard environments with either the `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable. Set only one; matching the Google SDK, `GOOGLE_API_KEY` takes precedence if both are present.
 
 ### Snowflake Cortex
 

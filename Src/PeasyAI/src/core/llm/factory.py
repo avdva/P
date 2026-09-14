@@ -94,7 +94,7 @@ class LLMProviderFactory:
         Detection order:
         1. Snowflake Cortex (if OPENAI_BASE_URL contains 'snowflake')
         2. Direct Anthropic (if ANTHROPIC_API_KEY is set)
-        3. OpenAI-compatible (if OPENAI_API_KEY is set without snowflake URL)
+        3. Google Gemini (if GOOGLE_API_KEY or GEMINI_API_KEY is set)
         4. AWS Bedrock (default fallback)
         
         Returns:
@@ -117,7 +117,8 @@ class LLMProviderFactory:
         openai_base_url = os.environ.get("OPENAI_BASE_URL", "")
         openai_api_key = os.environ.get("OPENAI_API_KEY", "")
         anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        gemini_api_key = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+        # Match google-genai's documented precedence when both are present.
+        gemini_api_key = os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
         
         # 1. Check for Snowflake Cortex
         if openai_base_url and "snowflake" in openai_base_url.lower():
@@ -191,7 +192,7 @@ class LLMProviderFactory:
         
         elif provider_name in ("gemini", "google_gemini"):
             return cls.create("gemini", {
-                "api_key": os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"),
+                "api_key": os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"),
                 "model": os.environ.get("GEMINI_MODEL_NAME", "gemini-3.6-flash"),
                 "timeout": float(os.environ.get("LLM_TIMEOUT", "600")),
             })

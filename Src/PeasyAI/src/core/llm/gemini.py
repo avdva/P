@@ -62,9 +62,14 @@ class GeminiProvider(LLMProvider):
         if self._client is None:
             try:
                 from google import genai
+                from google.genai import types
 
-                # Initialize the Client with api_key
-                self._client = genai.Client(api_key=self._api_key)
+                self._client = genai.Client(
+                    api_key=self._api_key,
+                    http_options=types.HttpOptions(
+                        timeout=max(1, int(self._timeout * 1000))
+                    ),
+                )
             except ImportError:
                 raise ProviderError(
                     self.name,
@@ -108,8 +113,6 @@ class GeminiProvider(LLMProvider):
                     )
                 )
 
-        max_tokens = min(cfg.max_tokens, 8192)
-
         logger.info(f"Gemini request: model={model}, messages={len(chat_contents)}")
         start_time = time.time()
 
@@ -119,7 +122,7 @@ class GeminiProvider(LLMProvider):
             generate_config = types.GenerateContentConfig(
                 temperature=cfg.temperature,
                 top_p=cfg.top_p,
-                max_output_tokens=max_tokens,
+                max_output_tokens=cfg.max_tokens,
             )
             if effective_system_prompt:
                 generate_config.system_instruction = effective_system_prompt
@@ -140,9 +143,9 @@ class GeminiProvider(LLMProvider):
             # Extract usage
             if hasattr(response, "usage_metadata") and response.usage_metadata:
                 usage = TokenUsage(
-                    input_tokens=response.usage_metadata.prompt_token_count,
-                    output_tokens=response.usage_metadata.candidates_token_count,
-                    total_tokens=response.usage_metadata.total_token_count,
+                    input_tokens=response.usage_metadata.prompt_token_count or 0,
+                    output_tokens=response.usage_metadata.candidates_token_count or 0,
+                    total_tokens=response.usage_metadata.total_token_count or 0,
                 )
             else:
                 usage = TokenUsage()
@@ -175,40 +178,47 @@ class GeminiProvider(LLMProvider):
             logger.error(f"Gemini error after {latency_ms}ms: {e}")
 
             try:
-                from google.api_core import exceptions as google_exceptions
-                is_google_exc = True
-            except ImportError:
-                is_google_exc = False
-                google_exceptions = None
+                import httpx
+                from google.genai import errors as genai_errors
 
-            if is_google_exc and google_exceptions:
-                if isinstance(e, (google_exceptions.Unauthenticated, google_exceptions.PermissionDenied)):
-                    raise AuthenticationError(
-                        self.name,
-                        f"Authentication failed. Check your API key. Error: {e}",
-                        original_error=e
-                    )
-                elif isinstance(e, google_exceptions.ResourceExhausted):
-                    raise RateLimitError(
-                        self.name,
-                        f"Rate limit exceeded. Error: {e}",
-                        original_error=e
-                    )
-                elif isinstance(e, google_exceptions.NotFound):
-                    raise ModelNotFoundError(
-                        self.name,
-                        f"Model not found: {model}. Error: {e}",
-                        original_error=e
-                    )
-                elif isinstance(e, google_exceptions.DeadlineExceeded):
+                if isinstance(e, genai_errors.APIError):
+                    if e.code in (401, 403):
+                        raise AuthenticationError(
+                            self.name,
+                            f"Authentication failed. Check your API key. Error: {e}",
+                            original_error=e
+                        )
+                    if e.code == 429:
+                        raise RateLimitError(
+                            self.name,
+                            f"Rate limit exceeded. Error: {e}",
+                            original_error=e
+                        )
+                    if e.code == 404:
+                        raise ModelNotFoundError(
+                            self.name,
+                            f"Model not found or not accessible: {model}. Error: {e}",
+                            original_error=e
+                        )
+                    if e.code in (408, 504):
+                        raise ProviderTimeoutError(
+                            self.name,
+                            f"Request timed out after {self._timeout}s",
+                            original_error=e
+                        )
+                if isinstance(e, httpx.TimeoutException):
                     raise ProviderTimeoutError(
                         self.name,
-                        f"Request timed out after {cfg.timeout}s",
+                        f"Request timed out after {self._timeout}s",
                         original_error=e
                     )
+            except ImportError:
+                # The SDK and httpx are transitive runtime dependencies, but
+                # retain string matching for unusual installation failures.
+                pass
 
-            # Fallback string-based matching
-            if "api key" in error_str or "unauthenticated" in error_str or "403" in error_str or "permission denied" in error_str:
+            # Fallback matching for transport and older-SDK exceptions.
+            if "api key" in error_str or "unauthenticated" in error_str or "401" in error_str or "403" in error_str or "permission denied" in error_str:
                 raise AuthenticationError(
                     self.name,
                     f"Authentication failed. Check your API key. Error: {e}",
@@ -229,7 +239,7 @@ class GeminiProvider(LLMProvider):
             elif "timeout" in error_str or "deadline" in error_str:
                 raise ProviderTimeoutError(
                     self.name,
-                    f"Request timed out after {cfg.timeout}s",
+                    f"Request timed out after {self._timeout}s",
                     original_error=e
                 )
             else:
