@@ -94,8 +94,9 @@ class LLMProviderFactory:
         Detection order:
         1. Snowflake Cortex (if OPENAI_BASE_URL contains 'snowflake')
         2. Direct Anthropic (if ANTHROPIC_API_KEY is set)
-        3. Google Gemini (if GOOGLE_API_KEY or GEMINI_API_KEY is set)
-        4. AWS Bedrock (default fallback)
+        3. OpenAI-compatible (if OPENAI_API_KEY is set without snowflake URL)
+        4. Google Gemini (if GOOGLE_API_KEY or GEMINI_API_KEY is set)
+        5. AWS Bedrock (default fallback)
         
         Returns:
             Configured LLMProvider instance
